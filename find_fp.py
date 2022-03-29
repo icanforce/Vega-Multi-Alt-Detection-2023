@@ -13,6 +13,7 @@ import numpy as np
 from effdet import create_model
 from effdet.data import resolve_input_config
 from timm.models.layers import set_layer_config
+from contextlib import suppress
 
 
 def set_device(input_device):
@@ -196,6 +197,22 @@ def jaccard_iou(box_a, box_b):
               (box_b[:, 3]-box_b[:, 1])).unsqueeze(0).expand_as(inter)  # [A,B]
     union = area_a + area_b - inter
     return inter / union  # [A,B]
+    
+def run_iou_thresh(out, iou_thresh):
+    skipped_ind= list()
+    for ii, pred in enumerate(out):
+        iou = jaccard_iou(pred[:4].unsqueeze(0),out[:, :4])
+        for jj, value in enumerate(iou[0][(ii + 1):]):
+            if value > iou_thresh:
+                skipped_ind.append(ii + jj + 1)
+
+    skipped_ind, new_out, out = set(skipped_ind), list(), list(out)
+    for i in range(len(out)):
+        if i not in skipped_ind:
+            new_out.append(out[i])
+
+    new_out = torch.stack(new_out)
+    return new_out
 
 def def_args(checkpoint_file, model_name):
 
@@ -216,7 +233,7 @@ def def_args(checkpoint_file, model_name):
     return args
 
 
-def create_bbox_text(image2annot, args):
+def create_bbox_text(image2annot, args, nms_thresh):
     for index in tqdm(range(len(image2annot))):
         img_path, txt_path = image2annot[index]
 
@@ -224,6 +241,25 @@ def create_bbox_text(image2annot, args):
 
         img = Image.open(img_path).convert("RGB")
         transformed_frame, img_scale = transforms_coco_eval(img, args["img_size"])
+        output = bench(transformed_frame)[0]
+        final_out = list()
+        for ii, pred in enumerate(output):
+            #Nonmax Suppression
+            if pred[-2] > nms_thresh:
+                final_out.append(pred)
+            else:
+                break
+
+        if len(final_out) != 0:
+            final_out = torch.stack(final_out)
+        if len(final_out) > 1:
+             #Nonmax Suppression
+             final_out = run_iou_thresh(final_out, 0.2)
+             print("Change IOU valuejdkwjdkwjdk")
+        else:
+            final_out = []
+
+        print(final_out)
 
         # Bboxes and Label array must be parrallel.
         image_data = []
@@ -320,6 +356,7 @@ if __name__ == "__main__":
     # parser.add_argument('--weight', dest = 'weight', required = True, help = "Weights for your model")
     # parser.add_argument('--model_name, dest = model_name', required = True, help = "name of effecientdet model")
     parser.add_argument('--device', dest = 'device', required = False, help = "marks the device")
+    parser.add_argument('--nms_thresh', dest = "nms_thresh", required = True, help = "refers to the nms thresh")
     weight, model_name = "finetuned_d3_model_best.pth.tar", "tf_efficientdet_d3"
 
 
@@ -334,4 +371,4 @@ if __name__ == "__main__":
     image2annot = find_applicable_video_frames(args.image_fold, args.gt_fold, args.attr_fold, args.alt)
     model_args = def_args(weight, model_name)
     bench, amp_autocast = create_effdet(model_args)
-    create_bbox_text(image2annot, model_args)
+    create_bbox_text(image2annot, model_args, float(args.nms_thresh))
