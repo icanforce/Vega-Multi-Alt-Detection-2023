@@ -197,7 +197,7 @@ def jaccard_iou(box_a, box_b):
               (box_b[:, 3]-box_b[:, 1])).unsqueeze(0).expand_as(inter)  # [A,B]
     union = area_a + area_b - inter
     return inter / union  # [A,B]
-    
+
 def run_iou_thresh(out, iou_thresh):
     skipped_ind= list()
     for ii, pred in enumerate(out):
@@ -232,8 +232,41 @@ def def_args(checkpoint_file, model_name):
 
     return args
 
+def overlap_bbox(box1, box2):
+    if (box1[0]>=box2[2]) or (box1[2]<=box2[0]) or (box1[3]<=box2[1]) or (box1[1]>=box2[3]):
+        # return False if no overlapping
+        return False
+    #return true if overlapping
+    return True
 
-def create_bbox_text(image2annot, args, nms_thresh):
+
+def count_tp(output, gt):
+
+    # Maybe it has close iou with many boxes. To get highest IOU
+    gt_tensor = torch.FloatTensor(gt)
+    for box in output:
+        box_class_id = int(box[-1])
+        #knock out options in gt, so you limit IOU calculations, so we are creating a condensed gt
+        cond_gt = gt_tensor[gt_tensor[:, -1] == box_class_id]
+        mask = list()
+        for gt_box in cond_gt:
+            mask.append(overlap_bbox(box, gt_box))
+        applicable_gt = cond_gt[mask]
+
+        print(box)
+        print(applicable_gt)
+
+        # Check to see if IOU calculated from IOU func match with overlap results
+
+
+        raise ValueError("jdhdwh")
+
+
+    pass
+
+
+
+def create_bbox_text(image2annot, args, nms_thresh, iou_thresh):
     for index in tqdm(range(len(image2annot))):
         img_path, txt_path = image2annot[index]
 
@@ -254,8 +287,7 @@ def create_bbox_text(image2annot, args, nms_thresh):
             final_out = torch.stack(final_out)
         if len(final_out) > 1:
              #Nonmax Suppression
-             final_out = run_iou_thresh(final_out, 0.2)
-             print("Change IOU valuejdkwjdkwjdk")
+             final_out = run_iou_thresh(final_out, iou_thresh)
         else:
             final_out = []
 
@@ -299,6 +331,8 @@ def create_bbox_text(image2annot, args, nms_thresh):
 
 
         print(image_data)
+        # Visualize pred and gt data through cv2
+        count_tp(final_out, image_data)
         # Check which boxes are correct
         raise ValueError("h")
 
@@ -357,6 +391,7 @@ if __name__ == "__main__":
     # parser.add_argument('--model_name, dest = model_name', required = True, help = "name of effecientdet model")
     parser.add_argument('--device', dest = 'device', required = False, help = "marks the device")
     parser.add_argument('--nms_thresh', dest = "nms_thresh", required = True, help = "refers to the nms thresh")
+    parser.add_argument('--iou', dest = "iou_thresh", required = False, type = float, default = 0.7, help = "iou thresh for post-processing bboxes")
     weight, model_name = "finetuned_d3_model_best.pth.tar", "tf_efficientdet_d3"
 
 
@@ -371,4 +406,4 @@ if __name__ == "__main__":
     image2annot = find_applicable_video_frames(args.image_fold, args.gt_fold, args.attr_fold, args.alt)
     model_args = def_args(weight, model_name)
     bench, amp_autocast = create_effdet(model_args)
-    create_bbox_text(image2annot, model_args, float(args.nms_thresh))
+    create_bbox_text(image2annot, model_args, float(args.nms_thresh), args.iou_thresh)
