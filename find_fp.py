@@ -240,21 +240,37 @@ def overlap_bbox(box1, box2):
     return True
 
 
-def count_tp(output, gt):
+def gauge_performance(output, gt, total_bg, total_cfp):
 
-    # Maybe it has close iou with many boxes. To get highest IOU
+    '''
+    Counts the amount of bg boxes from an out and gt
+    Counts the amount of cfp boxes from an out and gt
+    '''
+
     gt_tensor = torch.FloatTensor(gt)
+    '''Iterate and classify every box in output'''
     for box in output:
         box_class_id = int(box[-1])
-        #knock out options in gt, so you limit IOU calculations, so we are creating a condensed gt
-        cond_gt = gt_tensor[gt_tensor[:, -1] == box_class_id]
         mask = list()
-        for gt_box in cond_gt:
+        for gt_box in gt_tensor:
+            # iterating through every single ground truth bbox.
             mask.append(overlap_bbox(box, gt_box))
-        applicable_gt = cond_gt[mask]
+        if sum(mask) == 0:
+            '''If the box does not overlap with any gt box'''
+            total_bg += 1
+            break
+        '''Box has IOU with a gt box'''
 
-        print(box)
-        print(applicable_gt)
+        applicable_gt = gt_tensor[mask] # Index only boxes that overlap
+        applicable_gt[0][-1] = 3.0 # Delete later
+        applicable_gt[1][-1] = 3.0 # Delete later
+        correct_classid = applicable_gt[applicable_gt[:, -1] == box_class_id]
+        wrong_classid =  applicable_gt[~(applicable_gt[:, -1] == box_class_id)]
+
+        '''For all calculations here use max IOU -> torch.max(...) '''
+        '''cfp: Must use wrong_classid'''
+        iou = torch.max(jaccard_iou(box[:-2].unsqueeze(0), wrong_classid[:, :-1]))
+        print(iou)
 
         # Check to see if IOU calculated from IOU func match with overlap results
 
@@ -267,6 +283,12 @@ def count_tp(output, gt):
 
 
 def create_bbox_text(image2annot, args, nms_thresh, iou_thresh):
+    total_bg = 0 # Total background detections (No IOU)
+    total_nfp = 0 # Total near false positives (little IOU, false classID)
+    total_ntp = 0 # Total near true positive (little IOU, true classID)
+    total_cfp = 0 # Total clear false positives (big IOU, false classID)
+    total_ctp = 0 # Total clear true positives (big IOU, correct classID)
+
     for index in tqdm(range(len(image2annot))):
         img_path, txt_path = image2annot[index]
 
@@ -301,8 +323,6 @@ def create_bbox_text(image2annot, args, nms_thresh, iou_thresh):
         indices = next(matches).span()
         img_video_frame_id = int(os.path.basename(img_path)[indices[0] : indices[1]].lstrip('0'))
 
-        print(img_video_frame_id)
-
         with open(txt_path, 'r') as gt_file:
             gt_lines = gt_file.readlines()
             for line in gt_lines:
@@ -330,9 +350,9 @@ def create_bbox_text(image2annot, args, nms_thresh, iou_thresh):
                         image_data.append(img_bboxes_voc)
 
 
-        print(image_data)
+
         # Visualize pred and gt data through cv2
-        count_tp(final_out, image_data)
+        total_bg, total_cfp = gauge_performance(final_out, image_data, total_bg, total_cfp)
         # Check which boxes are correct
         raise ValueError("h")
 
