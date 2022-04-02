@@ -240,7 +240,7 @@ def overlap_bbox(box1, box2):
     return True
 
 
-def gauge_performance(output, gt, total_bg, total_cfp):
+def gauge_performance(output, gt, total_bg, total_cfp, total_ctp, total_nfp, total_ntp):
 
     '''
     Counts the amount of bg boxes from an out and gt
@@ -256,26 +256,62 @@ def gauge_performance(output, gt, total_bg, total_cfp):
             # iterating through every single ground truth bbox.
             mask.append(overlap_bbox(box, gt_box))
         if sum(mask) == 0:
-            '''If the box does not overlap with any gt box'''
+            '''If the box does not overlap with any gt box then label box as bg and continue to next box'''
             total_bg += 1
-            break
+            continue
         '''Box has IOU with a gt box'''
 
         applicable_gt = gt_tensor[mask] # Index only boxes that overlap
-        applicable_gt[0][-1] = 3.0 # Delete later
-        applicable_gt[1][-1] = 3.0 # Delete later
-        correct_classid = applicable_gt[applicable_gt[:, -1] == box_class_id]
-        wrong_classid =  applicable_gt[~(applicable_gt[:, -1] == box_class_id)]
+        '''For each prediction box you have to find the closest GT boxes
+        If closest has wrong class id then classify them as fp
+        If closest has correct class id then classift them as tp
+        If box overlaps with less than 0.05 thresh then is background.
+        '''
 
         '''For all calculations here use max IOU -> torch.max(...) '''
-        '''cfp: Must use wrong_classid'''
-        iou = torch.max(jaccard_iou(box[:-2].unsqueeze(0), wrong_classid[:, :-1]))
-        print(iou)
+        jaccard_scores = jaccard_iou(box[:-2].unsqueeze(0), applicable_gt[:, :-1])
+        iou, pred_num = torch.max(jaccard_scores), torch.argmax(jaccard_scores)
+        if iou.item() > 0.6:
+            '''Can either be cfp or ctp'''
+            if applicable_gt[pred_num][-1].item() == box_class_id:
+                '''It is ctp because class ids match, then continue to next box'''
+                total_ctp += 1
+                continue
+            else:
+                '''It is cfp because class ids do not match, then continue to next box'''
+                total_cfp += 1
+                continue
+        elif iou.item() > 0.05 and iou.item() < 0.6:
+            '''Can either be nfp or ntp'''
+            if applicable_gt[pred_num][-1].item() == box_class_id:
+                '''It is ntp because class ids match, then continue to next box'''
+                total_ntp += 1
+                continue
+            else:
+                '''It is nfp because class ids do not match, then continue to next box'''
+                total_nfp += 1
+                continue
+        else:
+            total_bg += 1
+            continue
 
-        # Check to see if IOU calculated from IOU func match with overlap results
+    print(total_nfp, total_ntp, total_cfp, total_ctp, total_bg)
 
 
-        raise ValueError("jdhdwh")
+
+        # box_matching_classid = applicable_gt[applicable_gt[:, -1] == box_class_id]
+        # box_differing_classid =  applicable_gt[~(applicable_gt[:, -1] == box_class_id)]
+        #
+        # '''For all calculations here use max IOU -> torch.max(...) '''
+        # '''cfp and nfp: Must use wrong_classid'''
+        # iou = torch.max(jaccard_iou(box[:-2].unsqueeze(0), wrong_classid[:, :-1]))
+        # if iou.item() > 0.6:
+        #     '''High IOU with gt box but wrong class id'''
+
+
+
+
+    raise ValueError("jdhdwh")
 
 
     pass
@@ -349,10 +385,14 @@ def create_bbox_text(image2annot, args, nms_thresh, iou_thresh):
                         img_bboxes_voc.append(class_id)
                         image_data.append(img_bboxes_voc)
 
-
-
         # Visualize pred and gt data through cv2
-        total_bg, total_cfp = gauge_performance(final_out, image_data, total_bg, total_cfp)
+        total_bg, total_cfp, total_ctp, total_nfp, total_ntp = gauge_performance(final_out,
+                                                           image_data,
+                                                           total_bg,
+                                                           total_cfp,
+                                                           total_ctp,
+                                                           total_nfp,
+                                                           total_ntp)
         # Check which boxes are correct
         raise ValueError("h")
 
