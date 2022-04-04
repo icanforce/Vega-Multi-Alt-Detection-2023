@@ -6,6 +6,7 @@ from PIL import Image
 import re
 import shutil
 import json
+import cv2
 
 import torch
 import numpy as np
@@ -316,7 +317,18 @@ def gauge_performance(output, gt, total_bg, total_cfp, total_ctp, total_nfp, tot
 
     pass
 
-
+def draw_boxes(boxes, labels, image):
+    # read the image with OpenCV
+    COLORS = [(255, 0, 0), (0, 255, 0), (0, 0, 255)]
+    for i, box in enumerate(boxes):
+        color = COLORS[labels[i] % len(COLORS)]
+        cv2.rectangle(
+            image,
+            (int(box[0]), int(box[1])),
+            (int(box[2]), int(box[3])),
+            color, 2
+        )
+    return image
 
 def create_bbox_text(image2annot, args, nms_thresh, iou_thresh):
     total_bg = 0 # Total background detections (No IOU)
@@ -350,6 +362,8 @@ def create_bbox_text(image2annot, args, nms_thresh, iou_thresh):
             final_out = []
 
         print(final_out)
+        final_out[:, :-2] = final_out[:, :-2] * img_scale
+        final_out = final_out[~(final_out[:, -1] == 1.0)]
 
         # Bboxes and Label array must be parrallel.
         image_data = []
@@ -386,6 +400,15 @@ def create_bbox_text(image2annot, args, nms_thresh, iou_thresh):
                         image_data.append(img_bboxes_voc)
 
         # Visualize pred and gt data through cv2
+
+        # image = cv2.imread(img_path)
+
+
+
+        # image = draw_boxes(final_out[:, :-2], final_out[:, -1].to(int), image)
+
+        # cv2.imshow('image',image)
+        # cv2.waitKey()
         total_bg, total_cfp, total_ctp, total_nfp, total_ntp = gauge_performance(final_out,
                                                            image_data,
                                                            total_bg,
@@ -394,6 +417,7 @@ def create_bbox_text(image2annot, args, nms_thresh, iou_thresh):
                                                            total_nfp,
                                                            total_ntp)
         # Check which boxes are correct
+        # Does nto work on []
         raise ValueError("h")
 
 
