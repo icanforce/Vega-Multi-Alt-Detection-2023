@@ -1,3 +1,8 @@
+# Create functionaolity to lower nms if bbox is empty
+# Create better vis tool for complex stats
+#For every false positive, can you print the confidence value?
+# Text function
+
 import argparse
 import glob
 import os
@@ -249,8 +254,11 @@ def gauge_performance(output, gt, total_bg, total_cfp, total_ctp, total_nfp, tot
     '''
 
     gt_tensor = torch.FloatTensor(gt)
+    '''Create a dict that links every index to the categorization of the box'''
+    ind2categ = dict()
+
     '''Iterate and classify every box in output'''
-    for box in output:
+    for i, box in enumerate(output):
         box_class_id = int(box[-1])
         mask = list()
         for gt_box in gt_tensor:
@@ -259,6 +267,7 @@ def gauge_performance(output, gt, total_bg, total_cfp, total_ctp, total_nfp, tot
         if sum(mask) == 0:
             '''If the box does not overlap with any gt box then label box as bg and continue to next box'''
             total_bg += 1
+            ind2categ[i] = "total_bg"
             continue
         '''Box has IOU with a gt box'''
 
@@ -277,48 +286,42 @@ def gauge_performance(output, gt, total_bg, total_cfp, total_ctp, total_nfp, tot
             if applicable_gt[pred_num][-1].item() == box_class_id:
                 '''It is ctp because class ids match, then continue to next box'''
                 total_ctp += 1
+                ind2categ[i] = "total_ctp"
                 continue
             else:
                 '''It is cfp because class ids do not match, then continue to next box'''
                 total_cfp += 1
+                ind2categ[i] = "total_cfp"
                 continue
         elif iou.item() > 0.05 and iou.item() < 0.6:
             '''Can either be nfp or ntp'''
             if applicable_gt[pred_num][-1].item() == box_class_id:
                 '''It is ntp because class ids match, then continue to next box'''
                 total_ntp += 1
+                ind2categ[i] = "total_ntp"
                 continue
             else:
                 '''It is nfp because class ids do not match, then continue to next box'''
                 total_nfp += 1
+                ind2categ[i] = "total_nfp"
                 continue
         else:
             total_bg += 1
             continue
 
-    print(total_nfp, total_ntp, total_cfp, total_ctp, total_bg)
-
-
-
-        # box_matching_classid = applicable_gt[applicable_gt[:, -1] == box_class_id]
-        # box_differing_classid =  applicable_gt[~(applicable_gt[:, -1] == box_class_id)]
-        #
-        # '''For all calculations here use max IOU -> torch.max(...) '''
-        # '''cfp and nfp: Must use wrong_classid'''
-        # iou = torch.max(jaccard_iou(box[:-2].unsqueeze(0), wrong_classid[:, :-1]))
-        # if iou.item() > 0.6:
-        #     '''High IOU with gt box but wrong class id'''
-
-
-
+    return total_bg, total_cfp, total_ctp, total_nfp, total_ntp, ind2categ
 
     raise ValueError("jdhdwh")
 
 
     pass
 
+def vis_complex_stats(image, ind2categ, bbox):
+    pass
+
 def draw_boxes(boxes, labels, image):
     # read the image with OpenCV
+    print(labels)
     COLORS = [(255, 0, 0), (0, 255, 0), (0, 0, 255)]
     for i, box in enumerate(boxes):
         color = COLORS[labels[i] % len(COLORS)]
@@ -343,6 +346,7 @@ def create_bbox_text(image2annot, args, nms_thresh, iou_thresh):
         print(img_path, txt_path)
 
         img = Image.open(img_path).convert("RGB")
+
         transformed_frame, img_scale = transforms_coco_eval(img, args["img_size"])
         output = bench(transformed_frame)[0]
         final_out = list()
@@ -361,9 +365,9 @@ def create_bbox_text(image2annot, args, nms_thresh, iou_thresh):
         else:
             final_out = []
 
-        print(final_out)
-        final_out[:, :-2] = final_out[:, :-2] * img_scale
-        final_out = final_out[~(final_out[:, -1] == 1.0)]
+        if len(final_out) != 0:
+            final_out[:, :-2] = final_out[:, :-2] * img_scale
+            final_out = final_out[~(final_out[:, -1] == 1.0)]
 
         # Bboxes and Label array must be parrallel.
         image_data = []
@@ -399,69 +403,28 @@ def create_bbox_text(image2annot, args, nms_thresh, iou_thresh):
                         img_bboxes_voc.append(class_id)
                         image_data.append(img_bboxes_voc)
 
+
+
         # Visualize pred and gt data through cv2
-
-        # image = cv2.imread(img_path)
-
-
-
+        image = cv2.imread(img_path)
+        image = draw_boxes(torch.tensor(image_data)[:, :-1], torch.tensor(image_data)[:, -1], image)
         # image = draw_boxes(final_out[:, :-2], final_out[:, -1].to(int), image)
-
-        # cv2.imshow('image',image)
-        # cv2.waitKey()
-        total_bg, total_cfp, total_ctp, total_nfp, total_ntp = gauge_performance(final_out,
+        cv2.imshow('image',image)
+        cv2.waitKey()
+        total_bg, total_cfp, total_ctp, total_nfp, total_ntp, ind2categ = gauge_performance(final_out,
                                                            image_data,
                                                            total_bg,
                                                            total_cfp,
                                                            total_ctp,
                                                            total_nfp,
                                                            total_ntp)
+                                                           
+        print(ind2categ)
+        print(total_nfp, total_ntp, total_cfp, total_ctp, total_bg)
         # Check which boxes are correct
         # Does nto work on []
         raise ValueError("h")
 
-
-
-
-
-
-        # print(img_video_frame_id)
-        # raise ValueError("H")
-
-        # print(img_video_frame_id)
-
-        # class_ids = list()
-        #
-        # with open(txt_path, 'r') as gt_file:
-        #     gt_lines = gt_file.readlines()
-        #     for line in gt_lines:
-        #         line_split = line.strip().split(',')
-        #         line_split = [int(v) for v in line_split]
-        #
-        #         if int(line_split[0]) == img_video_frame_id:
-        #             '''Filter conditions'''
-        #             '''Category ids: (i.e.,car(1), truck(2), bus(3))'''
-        #             if int(line_split[-3]) == 1 and \
-        #             int(line_split[-2]) == 1 and \
-        #             int(line_split[-1]) in [1, 3]:
-
-                        # print(line_split)
-                        # ann_nest_dict = {}
-                        # New_ann_id += 1
-                        # x, y, w, h = int(line_split[2]), int(line_split[3]), int(line_split[4]), int(line_split[5])
-                        # ann_nest_dict['bbox'] = [x, y, w, h]
-                        # ann_nest_dict['id'] = New_ann_id
-                        # ann_nest_dict['image_id'] = index
-                        # ann_nest_dict['area'] = (x + w) * (y + h)
-                        # ann_nest_dict['iscrowd'] = 0
-                        # if int(line_split[-1]) == 1:
-                        #     '''This is encoding the car category as a 2'''
-                        #     ann_nest_dict['category_id'] = 2
-                        # else:
-                        #     '''This is encoding the bus categpory as a 3'''
-                        #     assert int(line_split[-1]) == 3
-                        #     ann_nest_dict['category_id'] = 3
-                        # annotations_full_list.append(ann_nest_dict)
 
 
 if __name__ == "__main__":
@@ -476,6 +439,7 @@ if __name__ == "__main__":
     parser.add_argument('--device', dest = 'device', required = False, help = "marks the device")
     parser.add_argument('--nms_thresh', dest = "nms_thresh", required = True, help = "refers to the nms thresh")
     parser.add_argument('--iou', dest = "iou_thresh", required = False, type = float, default = 0.7, help = "iou thresh for post-processing bboxes")
+    # parser.add_argument('--input', dest = input_file, required = False, help = "Text file in format [image_basename, xmin, ymin, xmax, ymax, class_id]")
     weight, model_name = "finetuned_d3_model_best.pth.tar", "tf_efficientdet_d3"
 
 
