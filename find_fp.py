@@ -248,8 +248,7 @@ def overlap_bbox(box1, box2):
 def gauge_performance(output, gt, total_bg, total_cfp, total_ctp, total_nfp, total_ntp):
 
     '''
-    Counts the amount of bg boxes from an out and gt
-    Counts the amount of cfp boxes from an out and gt
+    Classifies boxes as total_bg, total_cfp, total_ctp, total_nfp, total_ntp
     '''
 
     gt_tensor = torch.FloatTensor(gt)
