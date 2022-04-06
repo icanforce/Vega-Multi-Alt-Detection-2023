@@ -1,5 +1,4 @@
 # Create functionaolity to lower nms if bbox is empty
-# Create better vis tool for complex stats
 #For every false positive, can you print the confidence value?
 # Text function
 
@@ -307,22 +306,27 @@ def gauge_performance(output, gt, total_bg, total_cfp, total_ctp, total_nfp, tot
                 continue
         else:
             total_bg += 1
+            ind2categ[i] = "total_bg"
             continue
 
     return total_bg, total_cfp, total_ctp, total_nfp, total_ntp, ind2categ
 
-    raise ValueError("jdhdwh")
+def vis_complex_stats(image, ind2categ, output):
+    '''Should only be applied to the output of model'''
+    '''Order of color categ KEY: total_nfp, total_ntp, total_cfp, total_ctp, total_bg'''
+    categ_COLORS = {"total_nfp": (255, 0, 0), "total_ntp": (0, 255, 0), "total_cfp": (0, 0, 255), "total_ctp": (225, 225, 225), "total_bg": (0, 0, 0)}
+    for i, box in enumerate(output):
+        color = categ_COLORS[ind2categ[i]]
+        cv2.rectangle(
+            image,
+            (int(box[0]), int(box[1])),
+            (int(box[2]), int(box[3])),
+            color, 2
+        )
+    return image
 
-
-    pass
-
-def vis_complex_stats(image, ind2categ, bbox):
-    pass
-
-def draw_boxes(boxes, labels, image):
+def draw_boxes(boxes, labels, image, COLORS = [(255, 0, 0), (0, 255, 0), (0, 0, 255)]):
     # read the image with OpenCV
-    print(labels)
-    COLORS = [(255, 0, 0), (0, 255, 0), (0, 0, 255)]
     for i, box in enumerate(boxes):
         color = COLORS[labels[i] % len(COLORS)]
         cv2.rectangle(
@@ -403,14 +407,6 @@ def create_bbox_text(image2annot, args, nms_thresh, iou_thresh):
                         img_bboxes_voc.append(class_id)
                         image_data.append(img_bboxes_voc)
 
-
-
-        # Visualize pred and gt data through cv2
-        image = cv2.imread(img_path)
-        image = draw_boxes(torch.tensor(image_data)[:, :-1], torch.tensor(image_data)[:, -1], image)
-        # image = draw_boxes(final_out[:, :-2], final_out[:, -1].to(int), image)
-        cv2.imshow('image',image)
-        cv2.waitKey()
         total_bg, total_cfp, total_ctp, total_nfp, total_ntp, ind2categ = gauge_performance(final_out,
                                                            image_data,
                                                            total_bg,
@@ -418,11 +414,25 @@ def create_bbox_text(image2annot, args, nms_thresh, iou_thresh):
                                                            total_ctp,
                                                            total_nfp,
                                                            total_ntp)
-                                                           
-        print(ind2categ)
-        print(total_nfp, total_ntp, total_cfp, total_ctp, total_bg)
-        # Check which boxes are correct
-        # Does nto work on []
+
+        if index == 0:
+            '''Only do visualization on first iteration of image'''
+            print("Visualize an Example Ground Truth")
+            image = cv2.cvtColor(cv2.imread(img_path), cv2.COLOR_BGR2RGB)
+
+            tensor_img_data = torch.tensor(image_data)
+            # image = draw_boxes(final_out[:, :-2], final_out[:, -1].to(int), image)
+            cv2.imshow('gt image',draw_boxes(tensor_img_data[:, :-1], tensor_img_data[:, -1], image.copy()))
+            cv2.waitKey()
+
+            print("Visualize Predictions and their Bounding Box Categories")
+            cv2.imshow('out image', vis_complex_stats(image, ind2categ, final_out[:, :-1]))
+            cv2.waitKey()
+
+            print(total_nfp, total_ntp, total_cfp, total_ctp, total_bg)
+
+
+
         raise ValueError("h")
 
 
