@@ -1,3 +1,5 @@
+# run carpk and dataset_heights and UAVDT 90 degrees
+
 # Create functionaolity to lower nms if bbox is empty
 #For every false positive, can you print the confidence value?
 # Text function
@@ -284,7 +286,7 @@ def gauge_performance(output, gt, total_bg, total_cfp, total_ctp, total_nfp, tot
             if applicable_gt[pred_num][-1].item() == box_class_id:
                 '''It is ctp because class ids match, then continue to next box'''
                 total_ctp += 1
-                ind2categ[i] = "total_ctp"
+                ind2categ[i] = "total_ctp" # Use this
                 continue
             else:
                 '''It is cfp because class ids do not match, then continue to next box'''
@@ -296,7 +298,7 @@ def gauge_performance(output, gt, total_bg, total_cfp, total_ctp, total_nfp, tot
             if applicable_gt[pred_num][-1].item() == box_class_id:
                 '''It is ntp because class ids match, then continue to next box'''
                 total_ntp += 1
-                ind2categ[i] = "total_ntp"
+                ind2categ[i] = "total_ntp" # Use this
                 continue
             else:
                 '''It is nfp because class ids do not match, then continue to next box'''
@@ -305,7 +307,7 @@ def gauge_performance(output, gt, total_bg, total_cfp, total_ctp, total_nfp, tot
                 continue
         else:
             total_bg += 1
-            ind2categ[i] = "total_bg"
+            ind2categ[i] = "total_bg" # Use this
             continue
 
     return total_bg, total_cfp, total_ctp, total_nfp, total_ntp, ind2categ
@@ -336,12 +338,44 @@ def draw_boxes(boxes, labels, image, COLORS = [(255, 0, 0), (0, 255, 0), (0, 0, 
         )
     return image
 
+def per_image_stats(ind2categ, output, image_fp):
+    img_basename = os.path.basename(image_fp)
+    with open("per_image_stats.txt", 'w') as f:
+        for ind in list(ind2categ.keys()):
+            box = output[ind][:5]
+            box_categ = ind2categ[ind]
+            class_id = output[ind][-1]
+            area = (box[2] - box[0]) * (box[3] - box[1])
+            if class_id == 2:
+                desc_name = "car"
+            else:
+                desc_name = "bus"
+
+            final_string = "{} {} {} {} {} {} {} {} {}".format(
+                img_basename,
+                box_categ,
+                box[0].item(),
+                box[1].item(),
+                box[2].item(),
+                box[3].item(),
+                box[4].item(),
+                area,
+                desc_name,
+                )
+
+            print(final_string, file=f)
+
 def create_bbox_text(image2annot, args, nms_thresh, iou_thresh):
     total_bg = 0 # Total background detections (No IOU)
     total_nfp = 0 # Total near false positives (little IOU, false classID)
     total_ntp = 0 # Total near true positive (little IOU, true classID)
     total_cfp = 0 # Total clear false positives (big IOU, false classID)
     total_ctp = 0 # Total clear true positives (big IOU, correct classID)
+
+    if os.path.exists("per_image_stats.txt"):
+        print("Text file already exists will prepeare to delete file")
+        os.remove("per_image_stats.txt")
+    open('per_image_stats.txt', 'w').close()
 
     for index in tqdm(range(len(image2annot))):
         img_path, txt_path = image2annot[index]
@@ -413,6 +447,8 @@ def create_bbox_text(image2annot, args, nms_thresh, iou_thresh):
                                                            total_ctp,
                                                            total_nfp,
                                                            total_ntp)
+        per_image_stats(ind2categ, final_out, img_path)
+
 
         if index == 0:
             '''Only do visualization on first iteration of image'''
@@ -425,6 +461,7 @@ def create_bbox_text(image2annot, args, nms_thresh, iou_thresh):
             cv2.waitKey()
 
             print("Visualize Predictions and their Bounding Box Categories")
+            # Deal with empty outputs
             cv2.imshow('out image', vis_complex_stats(image, ind2categ, final_out[:, :-1]))
             cv2.waitKey()
 
