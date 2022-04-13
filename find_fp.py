@@ -1,5 +1,4 @@
-# run carpk and dataset_heights and UAVDT 90 degrees
-
+# run dataset_heights and
 # Create functionaolity to lower nms if bbox is empty
 #For every false positive, can you print the confidence value?
 # Text function
@@ -184,6 +183,17 @@ def find_applicable_video_frames(image_fold, gt_fold, attr_fold, alt):
 
     return image2annot
 
+def carpk_get_image2annot(data_fold):
+
+    text_paths = glob.glob(os.path.join(data_fold, "Annotations", "*.txt"))
+    image_paths = glob.glob(os.path.join(data_fold, "Images", "*png"))
+
+    image_paths, text_paths = sorted(image_paths), sorted(text_paths)
+    image2annot = list(zip(image_paths, text_paths))
+
+    return image2annot
+
+
 def intersect(box_a, box_b):
 
     A = box_a.size(0)
@@ -340,7 +350,7 @@ def draw_boxes(boxes, labels, image, COLORS = [(255, 0, 0), (0, 255, 0), (0, 0, 
 
 def per_image_stats(ind2categ, output, image_fp):
     img_basename = os.path.basename(image_fp)
-    with open("per_image_stats.txt", 'w') as f:
+    with open("per_image_stats.txt", 'a+') as f:
         for ind in list(ind2categ.keys()):
             box = output[ind][:5]
             box_categ = ind2categ[ind]
@@ -364,6 +374,59 @@ def per_image_stats(ind2categ, output, image_fp):
                 )
 
             print(final_string, file=f)
+
+def create_UAVDT(img_path, txt_path):
+
+    image_data = []
+
+    regex = re.compile(r'\d+')
+    matches = regex.finditer(os.path.basename(img_path))
+    indices = next(matches).span()
+    img_video_frame_id = int(os.path.basename(img_path)[indices[0] : indices[1]].lstrip('0'))
+
+    with open(txt_path, 'r') as gt_file:
+        gt_lines = gt_file.readlines()
+        for line in gt_lines:
+            line_split = line.strip().split(',')
+            line_split = [int(v) for v in line_split]
+
+            if int(line_split[0]) == img_video_frame_id:
+                '''Filter conditions. This is where you can have occlusion params. No filtering for now'''
+                '''Category ids: (i.e.,car(1), truck(2), bus(3))'''
+                if int(line_split[-1]) in [1, 3]:
+                    xmin, ymin = line_split[2], line_split[3]
+                    xmax = xmin + line_split[4]
+                    ymax = ymin + line_split[5]
+                    img_bboxes_voc = [xmin, ymin, xmax, ymax]
+
+                    if int(line_split[-1]) == 1:
+                        '''This is encoding the car category as a 2'''
+                        class_id = 2 # Changing class id from 1 -> 2 because the model has beeen tranined to map to 2.
+                    else:
+                        '''This is encoding the bus categpory as a 3'''
+                        assert int(line_split[-1]) == 3
+                        class_id = 3
+
+                    img_bboxes_voc.append(class_id)
+                    image_data.append(img_bboxes_voc)
+
+    return image_data
+
+def create_CarpK(img_path, txt_path):
+
+    image_data = []
+
+    with open(txt_path, 'r') as gt_file:
+        gt_lines = gt_file.readlines()
+        for line in gt_lines:
+            line_split = line.strip().split()
+            xmin, ymin, xmax, ymax = int(line_split[0]), int(line_split[1]), int(line_split[2]), int(line_split[3])
+            # Encode a two in the end because class id is always 2
+            img_bboxes_voc = [xmin, ymin, xmax, ymax, 2]
+            image_data.append(img_bboxes_voc)
+
+    return image_data
+
 
 def create_bbox_text(image2annot, args, nms_thresh, iou_thresh):
     total_bg = 0 # Total background detections (No IOU)
@@ -407,38 +470,13 @@ def create_bbox_text(image2annot, args, nms_thresh, iou_thresh):
             final_out = final_out[~(final_out[:, -1] == 1.0)]
 
         # Bboxes and Label array must be parrallel.
-        image_data = []
+        if "CARPK" in img_path:
+            image_data = create_CarpK(img_path, txt_path)
+        elif "UAV-benchmark" in txt_path:
+            image_data = create_UAVDT(img_path, txt_path)
+        else:
+            raise RuntimeError("Can't classify dataset")
 
-        regex = re.compile(r'\d+')
-        matches = regex.finditer(os.path.basename(img_path))
-        indices = next(matches).span()
-        img_video_frame_id = int(os.path.basename(img_path)[indices[0] : indices[1]].lstrip('0'))
-
-        with open(txt_path, 'r') as gt_file:
-            gt_lines = gt_file.readlines()
-            for line in gt_lines:
-                line_split = line.strip().split(',')
-                line_split = [int(v) for v in line_split]
-
-                if int(line_split[0]) == img_video_frame_id:
-                    '''Filter conditions. This is where you can have occlusion params. No filtering for now'''
-                    '''Category ids: (i.e.,car(1), truck(2), bus(3))'''
-                    if int(line_split[-1]) in [1, 3]:
-                        xmin, ymin = line_split[2], line_split[3]
-                        xmax = xmin + line_split[4]
-                        ymax = ymin + line_split[5]
-                        img_bboxes_voc = [xmin, ymin, xmax, ymax]
-
-                        if int(line_split[-1]) == 1:
-                            '''This is encoding the car category as a 2'''
-                            class_id = 2 # Changing class id from 1 -> 2 because the model has beeen tranined to map to 2.
-                        else:
-                            '''This is encoding the bus categpory as a 3'''
-                            assert int(line_split[-1]) == 3
-                            class_id = 3
-
-                        img_bboxes_voc.append(class_id)
-                        image_data.append(img_bboxes_voc)
 
         total_bg, total_cfp, total_ctp, total_nfp, total_ntp, ind2categ = gauge_performance(final_out,
                                                            image_data,
@@ -468,26 +506,21 @@ def create_bbox_text(image2annot, args, nms_thresh, iou_thresh):
             print(total_nfp, total_ntp, total_cfp, total_ctp, total_bg)
 
 
-
-        raise ValueError("h")
-
-
-
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description = "arguments to filter and mode UAVDT data")
     parser.add_argument('--image_fold', dest = 'image_fold', required = True)
     parser.add_argument('--attr_fold', dest = 'attr_fold', required = True)
-    parser.add_argument('--gt_fold', dest = 'gt_fold', required = True)
+    parser.add_argument('--gt_fold', dest = 'gt_fold', required = True, help = "Must be in form of UAV-benchmark-MOTD_v1.0/GT")
     parser.add_argument('--alt', dest = 'alt', required = True, help = "Can either be high, medium, or low")
     # parser.add_argument('--weight', dest = 'weight', required = True, help = "Weights for your model")
     # parser.add_argument('--model_name, dest = model_name', required = True, help = "name of effecientdet model")
     parser.add_argument('--device', dest = 'device', required = False, help = "marks the device")
     parser.add_argument('--nms_thresh', dest = "nms_thresh", required = True, help = "refers to the nms thresh")
     parser.add_argument('--iou', dest = "iou_thresh", required = False, type = float, default = 0.7, help = "iou thresh for post-processing bboxes")
+    parser.add_argument('--carpk', dest = "carpk", required = True, help = "root path of carpk dataset (must have ending of CARPK_devkit/data)")
     # parser.add_argument('--input', dest = input_file, required = False, help = "Text file in format [image_basename, xmin, ymin, xmax, ymax, class_id]")
     weight, model_name = "finetuned_d3_model_best.pth.tar", "tf_efficientdet_d3"
-
 
     args = parser.parse_args()
 
@@ -497,7 +530,15 @@ if __name__ == "__main__":
         set_device("cpu")
         print("Defaulting to CPU")
 
-    image2annot = find_applicable_video_frames(args.image_fold, args.gt_fold, args.attr_fold, args.alt)
+    image2annot = list() # A list of all img path to label pairs
+    UAVDT_image2annot = find_applicable_video_frames(args.image_fold, args.gt_fold, args.attr_fold, args.alt)
+    carpk_image2annot = carpk_get_image2annot(args.carpk)
+    image2annot.extend(UAVDT_image2annot)
+    image2annot.extend(carpk_image2annot)
+
+    import random
+    random.shuffle(image2annot)
+
     model_args = def_args(weight, model_name)
     bench, amp_autocast = create_effdet(model_args)
     create_bbox_text(image2annot, model_args, float(args.nms_thresh), args.iou_thresh)
