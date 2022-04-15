@@ -1,10 +1,16 @@
-# Filter out only cars bbox_size, conf, categ 0.01 conf (No buses in text file)
-# Make a comma seperated list
 # Linear Regression (sklearn) y -> bbox size x -> confidence (poly, linear, SVM).
-# Defaults NMS thresh
 # Start off combining all low, high, medium
 
 # Make on list for carpk and one list to UAVDT (Complete UAVDT)
+
+# We ignored buses for now leading to no false positives.
+# Also make sure to utilize defaults nms thresholding
+'''
+For personal_reference: python3 metric_categorization.py --image_fold /Users/vishal.jain/Documents/ICANFORCE_Drones/UAV-benchmark-M
+--attr_fold /Users/vishal.jain/Documents/ICANFORCE_Drones/M_attr
+--gt_fold /Users/vishal.jain/Documents/ICANFORCE_Drones/UAV-benchmark-MOTD_v1.0/GT
+--alt medium --nms_thresh 0.01
+'''
 
 import argparse
 import glob
@@ -441,7 +447,9 @@ def create_bbox_text(image2annot, args, nms_thresh, iou_thresh):
     if os.path.exists("per_image_stats.txt"):
         print("Text file already exists will prepeare to delete file")
         os.remove("per_image_stats.txt")
-    open('per_image_stats.txt', 'w').close()
+    file = open('per_image_stats.txt', 'w')
+    file.write("img_bn,categ,xmin,ymin,xmax,ymax,conf,area,classID\n")
+    file.close()
 
     for index in tqdm(range(len(image2annot))):
         img_path, txt_path = image2annot[index]
@@ -521,10 +529,9 @@ if __name__ == "__main__":
     parser.add_argument('--device', dest = 'device', required = False, help = "marks the device")
     parser.add_argument('--nms_thresh', dest = "nms_thresh", required = True, help = "refers to the nms thresh")
     parser.add_argument('--iou', dest = "iou_thresh", required = False, type = float, default = 0.7, help = "iou thresh for post-processing bboxes")
-    parser.add_argument('--carpk', dest = "carpk", required = True, help = "root path of carpk dataset (must have ending of CARPK_devkit/data)")
+    parser.add_argument('--carpk', dest = "carpk", required = False, help = "root path of carpk dataset (must have ending of CARPK_devkit/data)")
     # parser.add_argument('--input', dest = input_file, required = False, help = "Text file in format [image_basename, xmin, ymin, xmax, ymax, class_id]")
     weight, model_name = "finetuned_d3_model_best.pth.tar", "tf_efficientdet_d3"
-
     args = parser.parse_args()
 
     if args.device:
@@ -535,9 +542,10 @@ if __name__ == "__main__":
 
     image2annot = list() # A list of all img path to label pairs
     UAVDT_image2annot = find_applicable_video_frames(args.image_fold, args.gt_fold, args.attr_fold, args.alt)
-    carpk_image2annot = carpk_get_image2annot(args.carpk)
     image2annot.extend(UAVDT_image2annot)
-    image2annot.extend(carpk_image2annot)
+    if args.carpk:
+        carpk_image2annot = carpk_get_image2annot(args.carpk)
+        image2annot.extend(carpk_image2annot)
 
     import random
     random.shuffle(image2annot)
