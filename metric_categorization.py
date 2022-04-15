@@ -1,7 +1,10 @@
-# run dataset_heights and
-# Create functionaolity to lower nms if bbox is empty
-#For every false positive, can you print the confidence value?
-# Text function
+# Filter out only cars bbox_size, conf, categ 0.01 conf (No buses in text file)
+# Make a comma seperated list
+# Linear Regression (sklearn) y -> bbox size x -> confidence (poly, linear, SVM).
+# Defaults NMS thresh
+# Start off combining all low, high, medium
+
+# Make on list for carpk and one list to UAVDT (Complete UAVDT)
 
 import argparse
 import glob
@@ -359,9 +362,9 @@ def per_image_stats(ind2categ, output, image_fp):
             if class_id == 2:
                 desc_name = "car"
             else:
-                desc_name = "bus"
+                continue # ignore buses
 
-            final_string = "{} {} {} {} {} {} {} {} {}".format(
+            final_string = "{},{},{},{},{},{},{},{},{}".format(
                 img_basename,
                 box_categ,
                 box[0].item(),
