@@ -165,21 +165,23 @@ def find_applicable_video_frames(image_fold, gt_fold, attr_fold, alt):
 
     attr_folders = glob.glob(os.path.join(attr_fold, "train", "*.txt"))
     attr_folders.extend(glob.glob(os.path.join(attr_fold, "test", "*.txt")))
+    alt_ind_list = list()
 
-    if alt == "high":
-        alt_ind = 5
-    elif alt == "medium":
-        alt_ind = 4
-    else:
-        alt_ind = 3
+    if alt == "high" or "high" in alt:
+        alt_ind_list.append(5)
+    if alt == "medium" or "medium" in alt:
+        alt_ind_list.append(4)
+    if alt == "low" or "low" in alt:
+        alt_ind_list.append(3)
 
     kept_video_folders = list()
-    for img_path in attr_folders:
-        with open(img_path, 'r') as file:
-            line = file.readline().strip().split(',')
-            if int(line[8]) == 1 and int(line[alt_ind]) == 1:
-                kept_video_folders.append(os.path.basename(img_path).split("_")[0].strip())
-            file.close()
+    for alt_ind in alt_ind_list:
+        for img_path in attr_folders:
+            with open(img_path, 'r') as file:
+                line = file.readline().strip().split(',')
+                if int(line[8]) == 1 and int(line[alt_ind]) == 1:
+                    kept_video_folders.append(os.path.basename(img_path).split("_")[0].strip())
+                file.close()
 
     print("Kept folders: {}".format(kept_video_folders))
 
