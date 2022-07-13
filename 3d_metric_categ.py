@@ -12,8 +12,7 @@ For personal_reference: python3 metric_categorization.py --image_fold /Users/vis
 --alt medium --nms_thresh 0.01
 '''
 
-# Do Resizing and IOU
-# Then look at how the resizing works
+# IDea is to randomly resize carpk images to conform to different areas.
 
 import argparse
 import glob
@@ -32,10 +31,6 @@ from effdet import create_model
 from effdet.data import resolve_input_config
 from timm.models.layers import set_layer_config
 from contextlib import suppress
-import albumentations
-
-# For debugging and plotting
-import matplotlib.pyplot as plt
 
 
 def set_device(input_device):
@@ -284,6 +279,7 @@ def gauge_performance(output, gt, total_bg, total_cfp, total_ctp, total_nfp, tot
     gt_tensor = torch.FloatTensor(gt)
     '''Create a dict that links every index to the categorization of the box'''
     ind2categ = dict()
+    ind2IOU = dict()
 
     '''Iterate and classify every box in output'''
     for i, box in enumerate(output):
@@ -296,6 +292,7 @@ def gauge_performance(output, gt, total_bg, total_cfp, total_ctp, total_nfp, tot
             '''If the box does not overlap with any gt box then label box as bg and continue to next box'''
             total_bg += 1
             ind2categ[i] = "total_bg"
+            ind2IOU[i] = 0
             continue
         '''Box has IOU with a gt box'''
 
@@ -315,11 +312,13 @@ def gauge_performance(output, gt, total_bg, total_cfp, total_ctp, total_nfp, tot
                 '''It is ctp because class ids match, then continue to next box'''
                 total_ctp += 1
                 ind2categ[i] = "total_ctp" # Use this
+                ind2IOU[i] = float(iou)
                 continue
             else:
                 '''It is cfp because class ids do not match, then continue to next box'''
                 total_cfp += 1
                 ind2categ[i] = "total_cfp"
+                ind2IOU[i]= float(iou)
                 continue
         elif iou.item() > 0.05 and iou.item() < 0.6:
             '''Can either be nfp or ntp'''
@@ -327,18 +326,21 @@ def gauge_performance(output, gt, total_bg, total_cfp, total_ctp, total_nfp, tot
                 '''It is ntp because class ids match, then continue to next box'''
                 total_ntp += 1
                 ind2categ[i] = "total_ntp" # Use this
+                ind2IOU[i]= float(iou)
                 continue
             else:
                 '''It is nfp because class ids do not match, then continue to next box'''
                 total_nfp += 1
                 ind2categ[i] = "total_nfp"
+                ind2IOU[i]= float(iou)
                 continue
         else:
             total_bg += 1
             ind2categ[i] = "total_bg" # Use this
+            ind2IOU[i]= 0
             continue
 
-    return total_bg, total_cfp, total_ctp, total_nfp, total_ntp, ind2categ
+    return total_bg, total_cfp, total_ctp, total_nfp, total_ntp, ind2categ, ind2IOU
 
 def vis_complex_stats(image, ind2categ, output):
     '''Should only be applied to the output of model'''
@@ -369,12 +371,14 @@ def draw_boxes(boxes, labels, image, COLORS = [(255, 0, 0), (0, 255, 0), (0, 0, 
         )
     return image
 
-def per_image_stats(ind2categ, output, image_fp):
+def per_image_stats(ind2categ, ind2IOU, output, image_fp):
     img_basename = os.path.basename(image_fp)
     with open("per_image_stats.txt", 'a+') as f:
         for ind in list(ind2categ.keys()):
             box = output[ind][:5]
             box_categ = ind2categ[ind]
+            iou_amount = ind2IOU[ind]
+
             class_id = output[ind][-1]
             area = (box[2] - box[0]) * (box[3] - box[1])
             if class_id == 2:
@@ -382,7 +386,7 @@ def per_image_stats(ind2categ, output, image_fp):
             else:
                 continue # ignore buses
 
-            final_string = "{},{},{},{},{},{},{},{},{}".format(
+            final_string = "{},{},{},{},{},{},{},{},{},{}".format(
                 img_basename,
                 box_categ,
                 box[0].item(),
@@ -392,6 +396,7 @@ def per_image_stats(ind2categ, output, image_fp):
                 box[4].item(),
                 area,
                 desc_name,
+                iou_amount
                 )
 
             print(final_string, file=f)
@@ -448,64 +453,6 @@ def create_CarpK(img_path, txt_path):
 
     return image_data
 
-def process_Carpk_img(img, image_data):
-    transform = albumentations.Compose(
-                [albumentations.augmentations.transforms.Resize(img.height, img.width)],
-                bbox_params=albumentations.BboxParams(format='pascal_voc'))
-    blank_sheet = np.zeros((img.height, img.width))
-    for i, bbox in enumerate(image_data):
-        color_pixel = i + 1
-        if color_pixel >= 255:
-            raise ValueError("Too many cars")
-        blank_sheet[bbox[1]: bbox[3], bbox[0] : bbox[2]] = int(color_pixel)
-    horizontal_pad, vertical_pad = int(img.width / 2), int(img.height / 2)
-    np_image = np.asarray(img)
-    cv2.imshow('sws', np_image)
-    cv2.waitKey()
-    image_data = np.asarray(image_data)
-    # Visualize bboxes next
-    np_image = np.pad(np_image,
-                        ((vertical_pad, vertical_pad),  # pad bottom
-                         (horizontal_pad, horizontal_pad),  # pad right
-                         (0, 0)),  # don't pad channels
-                        mode='constant',
-                        constant_values=0)
-
-    padded_blank_sheet = np.pad(blank_sheet,
-                        ((vertical_pad, vertical_pad),
-                          (horizontal_pad, horizontal_pad)),
-                        mode='constant',
-                        constant_values=0)
-    unique_masks = np.unique(padded_blank_sheet)
-    scaled_bboxes = list()
-    for i, bbox_id in enumerate(unique_masks[1:]):
-        single_mask = np.where(padded_blank_sheet == bbox_id, padded_blank_sheet, padded_blank_sheet * 0)
-        bbox_indices = np.where(single_mask == bbox_id)
-
-        y_min, y_max = bbox_indices[0][0], bbox_indices[0][-1]
-        x_min, x_max = bbox_indices[1][0], bbox_indices[1][-1]
-
-        bbox = [x_min, y_min, x_max, y_max, image_data[i]]
-        scaled_bboxes.append(bbox)
-
-    # box = bboxes[0]
-    # p_image = cv2.rectangle(np_image, (int(box[0]), int(box[1])), (int(box[2]), int(box[3])), (255, 0, 0), 4)
-    # cv2.imshow('dwd', p_image)
-    # cv2.waitKey()
-    transformed = transform(image = np_image, bboxes = scaled_bboxes)
-    final_image, final_bboxes = transformed["image"], transformed["bboxes"]
-    box = final_bboxes[0]
-    p_image = cv2.rectangle(final_image, (int(box[0]), int(box[1])), (int(box[2]), int(box[3])), (255, 0, 0), 4)
-
-    print(final_image.shape)
-    print(final_bboxes)
-
-    cv2.imshow('image', p_image)
-    cv2.waitKey()
-
-    assert 1 == 2
-    return np_image
-
 
 def create_bbox_text(image2annot, args, nms_thresh, iou_thresh):
     total_bg = 0 # Total background detections (No IOU)
@@ -530,12 +477,6 @@ def create_bbox_text(image2annot, args, nms_thresh, iou_thresh):
         # Bboxes and Label array must be parrallel.
         if "CARPK" in img_path:
             image_data = create_CarpK(img_path, txt_path)
-            '''Create code to process the image sizes'''
-            img = process_Carpk_img(img, image_data) # pascal_voc
-
-            assert 1 == 2
-
-
         elif "UAV-benchmark" in txt_path:
             image_data = create_UAVDT(img_path, txt_path)
         else:
@@ -566,32 +507,32 @@ def create_bbox_text(image2annot, args, nms_thresh, iou_thresh):
 
 
 
-        total_bg, total_cfp, total_ctp, total_nfp, total_ntp, ind2categ = gauge_performance(final_out,
+        total_bg, total_cfp, total_ctp, total_nfp, total_ntp, ind2categ, ind2IOU = gauge_performance(final_out,
                                                            image_data,
                                                            total_bg,
                                                            total_cfp,
                                                            total_ctp,
                                                            total_nfp,
                                                            total_ntp)
-        per_image_stats(ind2categ, final_out, img_path)
+        per_image_stats(ind2categ, ind2IOU, final_out, img_path)
 
 
-        if index == 0:
-            '''Only do visualization on first iteration of image'''
-            print("Visualize an Example Ground Truth")
-            image = cv2.cvtColor(cv2.imread(img_path), cv2.COLOR_BGR2RGB)
-
-            tensor_img_data = torch.tensor(image_data)
-            # image = draw_boxes(final_out[:, :-2], final_out[:, -1].to(int), image)
-            cv2.imshow('gt image',draw_boxes(tensor_img_data[:, :-1], tensor_img_data[:, -1], image.copy()))
-            cv2.waitKey()
-
-            print("Visualize Predictions and their Bounding Box Categories")
-            # Deal with empty outputs
-            cv2.imshow('out image', vis_complex_stats(image, ind2categ, final_out[:, :-1]))
-            cv2.waitKey()
-
-            print(total_nfp, total_ntp, total_cfp, total_ctp, total_bg)
+        # if index == 0:
+        #     '''Only do visualization on first iteration of image'''
+        #     print("Visualize an Example Ground Truth")
+        #     image = cv2.cvtColor(cv2.imread(img_path), cv2.COLOR_BGR2RGB)
+        #
+        #     tensor_img_data = torch.tensor(image_data)
+        #     # image = draw_boxes(final_out[:, :-2], final_out[:, -1].to(int), image)
+        #     cv2.imshow('gt image',draw_boxes(tensor_img_data[:, :-1], tensor_img_data[:, -1], image.copy()))
+        #     cv2.waitKey()
+        #
+        #     print("Visualize Predictions and their Bounding Box Categories")
+        #     # Deal with empty outputs
+        #     cv2.imshow('out image', vis_complex_stats(image, ind2categ, final_out[:, :-1]))
+        #     cv2.waitKey()
+        #
+        #     print(total_nfp, total_ntp, total_cfp, total_ctp, total_bg)
 
 
 if __name__ == "__main__":
@@ -625,9 +566,8 @@ if __name__ == "__main__":
 
     image2annot = list() # A list of all img path to label pairs
     # UAVDT is off
-    # UAVDT_image2annot = find_applicable_video_frames(args.image_fold, args.gt_fold, args.attr_fold, args.alt)
-    # image2annot.extend(UAVDT_image2annot)
-
+    UAVDT_image2annot = find_applicable_video_frames(args.image_fold, args.gt_fold, args.attr_fold, args.alt)
+    image2annot.extend(UAVDT_image2annot)
     if args.carpk:
         carpk_image2annot = carpk_get_image2annot(args.carpk)
         image2annot.extend(carpk_image2annot)
