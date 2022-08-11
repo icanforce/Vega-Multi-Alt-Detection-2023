@@ -31,6 +31,10 @@ from effdet import create_model
 from effdet.data import resolve_input_config
 from timm.models.layers import set_layer_config
 from contextlib import suppress
+import albumentations
+
+# For debugging and plotting
+import matplotlib.pyplot as plt
 
 
 def set_device(input_device):
@@ -453,6 +457,62 @@ def create_CarpK(img_path, txt_path):
 
     return image_data
 
+def process_Carpk_img(img, image_data):
+    transform = albumentations.Compose(
+                [albumentations.augmentations.transforms.Resize(img.height, img.width)],
+                bbox_params=albumentations.BboxParams(format='pascal_voc'))
+    blank_sheet = np.zeros((img.height, img.width))
+    for i, bbox in enumerate(image_data):
+        color_pixel = i + 1
+        if color_pixel >= 255:
+            raise ValueError("Too many cars")
+        blank_sheet[bbox[1]: bbox[3], bbox[0] : bbox[2]] = int(color_pixel)
+    horizontal_pad, vertical_pad = int(img.width / 2), int(img.height / 2) 
+    np_image = np.asarray(img)
+    image_data = np.asarray(image_data)
+    # Visualize bboxes next
+    np_image = np.pad(np_image,
+                        ((vertical_pad, vertical_pad),  # pad bottom
+                         (horizontal_pad, horizontal_pad),  # pad right
+                         (0, 0)),  # don't pad channels
+                        mode='constant',
+                        constant_values=0)
+
+    padded_blank_sheet = np.pad(blank_sheet,
+                        ((vertical_pad, vertical_pad),
+                          (horizontal_pad, horizontal_pad)),
+                        mode='constant',
+                        constant_values=0)
+    unique_masks = np.unique(padded_blank_sheet)
+    scaled_bboxes = list()
+    for i, bbox_id in enumerate(unique_masks[1:]):
+        single_mask = np.where(padded_blank_sheet == bbox_id, padded_blank_sheet, padded_blank_sheet * 0)
+        bbox_indices = np.where(single_mask == bbox_id)
+
+        y_min, y_max = bbox_indices[0][0], bbox_indices[0][-1]
+        x_min, x_max = bbox_indices[1][0], bbox_indices[1][-1]
+
+        bbox = [x_min, y_min, x_max, y_max, image_data[i]]
+        if x_max > x_min and y_max > y_min:
+            scaled_bboxes.append(bbox)
+
+    transformed = transform(image = np_image, bboxes = scaled_bboxes)
+    final_image, final_bboxes = transformed["image"], transformed["bboxes"]
+    final_image = Image.fromarray(np.uint8(final_image))
+    boxes = [[int(box[0]), int(box[1]), int(box[2]), int(box[3]), 2] for box in final_bboxes]
+    final_bboxes = []
+    # for box in boxes:
+    #     try:
+    #         p_image = cv2.rectangle(final_image, (int(box[0]), int(box[1])), (int(box[2]), int(box[3])), (255, 0, 0), 4)
+    #         final_bboxes.append(box)
+    #     except:
+    #         continue
+    # p_image = cv2.rectangle(final_image, (int(box[0]), int(box[1])), (int(box[2]), int(box[3])), (255, 0, 0), 4)
+    # plt.imshow(p_image)
+    # plt.show()
+
+    return final_image, boxes
+
 
 def create_bbox_text(image2annot, args, nms_thresh, iou_thresh):
     total_bg = 0 # Total background detections (No IOU)
@@ -477,6 +537,8 @@ def create_bbox_text(image2annot, args, nms_thresh, iou_thresh):
         # Bboxes and Label array must be parrallel.
         if "CARPK" in img_path:
             image_data = create_CarpK(img_path, txt_path)
+            '''Create code to process the image sizes'''
+            img, image_data = process_Carpk_img(img, image_data) # pascal_voc
         elif "UAV-benchmark" in txt_path:
             image_data = create_UAVDT(img_path, txt_path)
         else:
@@ -566,8 +628,8 @@ if __name__ == "__main__":
 
     image2annot = list() # A list of all img path to label pairs
     # UAVDT is off
-    UAVDT_image2annot = find_applicable_video_frames(args.image_fold, args.gt_fold, args.attr_fold, args.alt)
-    image2annot.extend(UAVDT_image2annot)
+    # UAVDT_image2annot = find_applicable_video_frames(args.image_fold, args.gt_fold, args.attr_fold, args.alt)
+    # image2annot.extend(UAVDT_image2annot)
     if args.carpk:
         carpk_image2annot = carpk_get_image2annot(args.carpk)
         image2annot.extend(carpk_image2annot)
