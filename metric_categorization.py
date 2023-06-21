@@ -458,10 +458,8 @@ def process_Carpk_img(img, image_data):
         if color_pixel >= 255:
             raise ValueError("Too many cars")
         blank_sheet[bbox[1]: bbox[3], bbox[0] : bbox[2]] = int(color_pixel)
-    horizontal_pad, vertical_pad = int(img.width / 2), int(img.height / 2)
+    horizontal_pad, vertical_pad = int(img.width), int(img.height)
     np_image = np.asarray(img)
-    cv2.imshow('sws', np_image)
-    cv2.waitKey()
     image_data = np.asarray(image_data)
     # Visualize bboxes next
     np_image = np.pad(np_image,
@@ -486,25 +484,22 @@ def process_Carpk_img(img, image_data):
         x_min, x_max = bbox_indices[1][0], bbox_indices[1][-1]
 
         bbox = [x_min, y_min, x_max, y_max, image_data[i]]
-        scaled_bboxes.append(bbox)
+        if x_max > x_min and y_max > y_min:
+            scaled_bboxes.append(bbox)
 
-    # box = bboxes[0]
-    # p_image = cv2.rectangle(np_image, (int(box[0]), int(box[1])), (int(box[2]), int(box[3])), (255, 0, 0), 4)
-    # cv2.imshow('dwd', p_image)
-    # cv2.waitKey()
     transformed = transform(image = np_image, bboxes = scaled_bboxes)
     final_image, final_bboxes = transformed["image"], transformed["bboxes"]
-    box = final_bboxes[0]
-    p_image = cv2.rectangle(final_image, (int(box[0]), int(box[1])), (int(box[2]), int(box[3])), (255, 0, 0), 4)
-
-    print(final_image.shape)
-    print(final_bboxes)
-
-    cv2.imshow('image', p_image)
-    cv2.waitKey()
-
-    assert 1 == 2
-    return np_image
+    final_image = Image.fromarray(np.uint8(final_image))
+    boxes = [[int(box[0]), int(box[1]), int(box[2]), int(box[3]), 2] for box in final_bboxes]
+    # final_bboxes = []
+    # for box in boxes:
+    #     try:
+    #         p_image = cv2.rectangle(final_image, (int(box[0]), int(box[1])), (int(box[2]), int(box[3])), (255, 0, 0), 4)
+    #         final_bboxes.append(box)
+    #     except:
+    #         continue
+    # p_image = cv2.rectangle(final_image, (int(box[0]), int(box[1])), (int(box[2]), int(box[3])), (255, 0, 0), 4)
+    return final_image, boxes
 
 
 def create_bbox_text(image2annot, args, nms_thresh, iou_thresh):
@@ -531,11 +526,7 @@ def create_bbox_text(image2annot, args, nms_thresh, iou_thresh):
         if "CARPK" in img_path:
             image_data = create_CarpK(img_path, txt_path)
             '''Create code to process the image sizes'''
-            img = process_Carpk_img(img, image_data) # pascal_voc
-
-            assert 1 == 2
-
-
+            img, image_data = process_Carpk_img(img, image_data) # pascal_voc
         elif "UAV-benchmark" in txt_path:
             image_data = create_UAVDT(img_path, txt_path)
         else:
@@ -576,22 +567,22 @@ def create_bbox_text(image2annot, args, nms_thresh, iou_thresh):
         per_image_stats(ind2categ, final_out, img_path)
 
 
-        if index == 0:
-            '''Only do visualization on first iteration of image'''
-            print("Visualize an Example Ground Truth")
-            image = cv2.cvtColor(cv2.imread(img_path), cv2.COLOR_BGR2RGB)
-
-            tensor_img_data = torch.tensor(image_data)
-            # image = draw_boxes(final_out[:, :-2], final_out[:, -1].to(int), image)
-            cv2.imshow('gt image',draw_boxes(tensor_img_data[:, :-1], tensor_img_data[:, -1], image.copy()))
-            cv2.waitKey()
-
-            print("Visualize Predictions and their Bounding Box Categories")
-            # Deal with empty outputs
-            cv2.imshow('out image', vis_complex_stats(image, ind2categ, final_out[:, :-1]))
-            cv2.waitKey()
-
-            print(total_nfp, total_ntp, total_cfp, total_ctp, total_bg)
+        # if index == 0:
+        #     '''Only do visualization on first iteration of image'''
+        #     print("Visualize an Example Ground Truth")
+        #     image = cv2.cvtColor(cv2.imread(img_path), cv2.COLOR_BGR2RGB)
+        #
+        #     tensor_img_data = torch.tensor(image_data)
+        #     # image = draw_boxes(final_out[:, :-2], final_out[:, -1].to(int), image)
+        #     cv2.imshow('gt image',draw_boxes(tensor_img_data[:, :-1], tensor_img_data[:, -1], image.copy()))
+        #     cv2.waitKey()
+        #
+        #     print("Visualize Predictions and their Bounding Box Categories")
+        #     # Deal with empty outputs
+        #     cv2.imshow('out image', vis_complex_stats(image, ind2categ, final_out[:, :-1]))
+        #     cv2.waitKey()
+        #
+        #     print(total_nfp, total_ntp, total_cfp, total_ctp, total_bg)
 
 
 if __name__ == "__main__":
